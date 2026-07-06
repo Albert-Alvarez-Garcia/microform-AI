@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>_MICROFORM // Dynamic JSON Renderer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body { font-family: 'JetBrains+Mono', monospace; }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: { darkbg: '#121212', darkpanel: '#1a1a1a', brutalorange: '#ff9f1c', brutalred: '#ff4d4d' }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-darkbg text-gray-100 min-h-screen p-6 flex flex-col gap-4">
+
+    <header class="border-b-2 border-zinc-800 pb-4">
+        <h1 class="text-2xl font-bold tracking-tighter text-brutalorange">_MICROFORM // GENERADOR DINÁMICO</h1>
+        <p class="text-xs text-zinc-400 mt-1">Escribe tu esquema JSON a la izquierda o usa la IA; interactúa con el formulario reactivo a la derecha.</p>
+    </header>
+    
+    <section class="bg-zinc-900 border-2 border-brutalorange/50 p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+        <div class="flex-1">
+            <label class="text-[10px] font-bold text-brutalorange block mb-1">// PROMPT PARA GENERAR FORMULARIO VÍA IA</label>
+            <input id="ia-prompt" type="text" placeholder="ej: Crea un formulario de registro..." class="w-full bg-zinc-800 border border-zinc-700 text-sm p-2 text-gray-200 font-mono focus:outline-none focus:border-brutalorange">
+        </div>
+        <div class="flex flex-col justify-end">
+            <label class="text-[10px] font-bold text-zinc-500 block mb-1">API KEY DE GEMINI</label>
+            <input id="ia-key" type="password" value="">
+        </div>
+        <button id="btn-ia" onclick="generarFormularioConIA()" class="md:self-end p-2 px-6 bg-brutalorange text-white font-bold hover:bg-orange-600 transition-colors duration-150 text-sm uppercase">
+            Generar ✨
+        </button>
+    </section>
+
+    <div class="w-full mt-1 border-t border-zinc-800 pt-3">
+        <details class="group">
+            <summary class="text-xs font-bold text-zinc-500 cursor-pointer select-none hover:text-brutalorange transition-colors list-none flex items-center gap-2">
+                <span class="transition-transform group-open:rotate-90 text-[10px]">▶</span> 
+                // ¿CÓMO OBTENER UNA API KEY GRATUITA EN 30 SEGUNDOS?
+            </summary>
+            <div class="mt-3 bg-zinc-950 p-3 border border-zinc-800 text-xs text-zinc-400 flex flex-col gap-2 font-mono">
+                <p><strong class="text-zinc-200">1.</strong> Entra en <a href="https://aistudio.google.com/" target="_blank" class="text-brutalorange underline hover:text-orange-400">Google AI Studio</a>.</p>
+                <p><strong class="text-zinc-200">2.</strong> Ve al menú (☰) y haz clic en el icono de la llave (🔑).</p>
+                <p><strong class="text-zinc-200">3.</strong> Crea tu API Key, cópiala y pégala arriba.</p>
+            </div>
+        </details>
+    </div>
+
+    <main class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 items-stretch mt-2">
+        <section class="flex flex-col bg-darkpanel border-2 border-zinc-800 p-4 gap-3">
+            <div class="flex justify-between items-center">
+                <span class="text-xs font-bold text-zinc-500">// 1. ESQUEMA JSON (INPUT)</span>
+                <span id="json-status" class="text-xs px-2 py-0.5 bg-green-900/40 text-green-400 border border-green-800">JSON OK</span>
+            </div>
+            <textarea id="json-editor" class="w-full flex-1 min-h-[450px] bg-zinc-900 text-yellow-400 p-4 font-mono text-sm border border-zinc-800 focus:outline-none focus:border-brutalorange resize-none" spellcheck="false"></textarea>
+        </section>
+
+        <section class="flex flex-col bg-darkpanel border-2 border-zinc-800 p-4 gap-4">
+            <span class="text-xs font-bold text-zinc-500">// 2. VISTA PREVIA REACTIVA (OUTPUT)</span>
+            <form id="dynamic-form" class="flex-1 flex flex-col gap-4 bg-zinc-900 border border-zinc-800 p-6 overflow-y-auto max-h-[500px]" onsubmit="event.preventDefault();"></form>
+            <div class="border border-zinc-800 p-3 bg-zinc-950">
+                <span class="text-[10px] text-zinc-500 block mb-1">DATA STATE (OUTPUT SUBMIT):</span>
+                <pre id="form-state" class="text-xs text-cyan-400 overflow-x-auto">{}</pre>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const esquemaPorDefecto = {
+            title: "Configuración de Perfil Técnico",
+            fields: [
+                { id: "username", label: "Nombre de Usuario", type: "text", placeholder: "ej. niko_dev", required: true },
+                { id: "role", label: "Rol Técnico", type: "select", options: ["Frontend", "Backend", "Fullstack"], defaultValue: "Fullstack" }
+            ]
+        };
+
+        let formData = {};
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const editor = document.getElementById("json-editor");
+            editor.value = JSON.stringify(esquemaPorDefecto, null, 2);
+            compilarJSON(editor.value);
+            editor.addEventListener("input", (e) => compilarJSON(e.target.value));
+        });
+
+        function compilarJSON(rawText) {
+            const statusLabel = document.getElementById("json-status");
+            try {
+                const esquema = JSON.parse(rawText);
+                statusLabel.innerText = "JSON OK";
+                statusLabel.className = "text-xs px-2 py-0.5 bg-green-900/40 text-green-400 border border-green-800";
+                renderizarFormulario(esquema);
+            } catch (err) {
+                statusLabel.innerText = "ERROR DE PARSING";
+                statusLabel.className = "text-xs px-2 py-0.5 bg-red-900/40 text-brutalred border border-red-800";
+            }
+        }
+
+        function renderizarFormulario(esquema) {
+    const form = document.getElementById("dynamic-form");
+    form.innerHTML = "";
+    if (!esquema?.fields) return;
+
+    esquema.fields.forEach(f => {
+        const div = document.createElement("div");
+        div.className = "flex flex-col gap-1 mb-2";
+        
+        let campoHtml = "";
+
+        if (f.type === "select") {
+            // Generamos las opciones del desplegable
+            const options = f.options.map(opt => `<option value="${opt}">${opt}</option>`).join('');
+            campoHtml = `<select class='w-full bg-zinc-800 border border-zinc-700 p-2 text-white'>${options}</select>`;
+        
+        } else if (f.type === "radio") {
+            // Generamos botones de radio
+            campoHtml = f.options.map(opt => `
+                <label class='flex items-center gap-2 text-xs text-zinc-300'>
+                    <input type='radio' name='${f.id}' value='${opt}'> ${opt}
+                </label>
+            `).join('');
+
+        } else if (f.type === "textarea") {
+            // Generamos un textarea
+            campoHtml = `<textarea class='w-full bg-zinc-800 border border-zinc-700 p-2 text-white h-20'></textarea>`;
+
+        } else {
+            // Caso por defecto (text, number, etc.)
+            campoHtml = `<input class='w-full bg-zinc-800 border border-zinc-700 p-2 text-white' type='${f.type}'>`;
+        }
+
+        div.innerHTML = `<label class='text-xs font-bold text-zinc-500'>${f.label}</label> ${campoHtml}`;
+        form.appendChild(div);
+    });
+}
+
+        async function generarFormularioConIA() {
+    const btn = document.getElementById("btn-ia");
+    const prompt = document.getElementById("ia-prompt").value.trim();
+    const apiKey = document.getElementById("ia-key").value.trim();
+    const editor = document.getElementById("json-editor");
+
+    if (!prompt || !apiKey) return alert("Completa el prompt y la clave.");
+
+    btn.innerText = "PROCESANDO...";
+    btn.disabled = true;
+
+    try {
+        // Ahora apuntamos a tu servidor Python local
+        const response = await fetch("http://localhost:8000", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                apiKey: apiKey,
+                contents: [{ parts: [{ text: `Responde SOLO con el JSON: {"title":"...", "fields":[{"id":"...", "label":"...", "type":"text"}]}. Prompt: ${prompt}` }] }]
+            })
+        });
+
+        const data = await response.json();
+
+        // Si el servidor Python devuelve el JSON, lo aplicamos
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+            const textoIA = data.candidates[0].content.parts[0].text;
+            const jsonLimpio = textoIA.replace(/```json|```/g, "").trim();
+            editor.value = jsonLimpio;
+            compilarJSON(jsonLimpio);
+        } else {
+            alert("Error en la respuesta del servidor Python.");
+        }
+
+    } catch (e) {
+        console.error("ERROR DETALLADO:", e);
+        alert("Error de conexión con el servidor Python local.");
+    } finally {
+        btn.innerText = "Generar ✨";
+        btn.disabled = false;
+    }
+}
+    </script>
+    <footer class="mt-8 border-t border-zinc-800 pt-4 text-center">
+        <a href="https://github.com/Albert-Alvarez-Garcia" class="text-zinc-500 hover:text-brutalorange text-xs">// Capi Bara Tech - GitHub</a>
+    </footer>
+</body>
+</html>
